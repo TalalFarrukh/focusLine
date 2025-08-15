@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FocusLine Settings</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="logo">🎯</div>
+      <h1>FocusLine</h1>
+      <p>Adult Content Filter</p>
+    </div>
+    
+    <div class="settings">
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-title">Content Blurring</div>
+          <div class="setting-description">Blur adult content on webpages</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="blurEnabled" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+      
+      <div class="setting-item">
+        <div class="setting-info">
+          <div class="setting-title">Tab Blocking</div>
+          <div class="setting-description">Close tabs with adult URLs</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="tabBlockingEnabled" checked>
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+    
+    <div class="status" id="status">Settings saved</div>
+    
+    <div class="footer">
+      <div class="version">v0.3.0</div>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

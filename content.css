@@ -1,0 +1,10 @@
+.fl-blur {
+  filter: blur(15px) !important;
+  user-select: none;
+  pointer-events: none;
+  background-color: rgba(0, 0, 0, 0.3) !important;
+  color: transparent !important;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.8) !important;
+}
+
+
