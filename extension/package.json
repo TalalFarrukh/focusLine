@@ -1,0 +1,18 @@
+{
+  "name": "extension",
+  "version": "1.0.0",
+  "main": "src/background.js",
+  "scripts": {
+    "build:background": "esbuild src/background.js --bundle --outfile=dist/background.bundle.js --minify --sourcemap",
+    "build:content": "esbuild src/content.js --bundle --outfile=dist/content.bundle.js --minify --sourcemap",
+    "build:popup": "esbuild src/popup.js --bundle --outfile=dist/popup.bundle.js --minify --sourcemap",
+    "build": "npm run build:background && npm run build:content && npm run build:popup"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "esbuild": "^0.25.9"
+  }
+}

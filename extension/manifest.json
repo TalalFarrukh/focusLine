@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "FocusLine – AI Content Filter",
+  "version": "1.0.0",
+  "description": "...",
+
+  "permissions": ["webNavigation", "tabs", "activeTab", "storage"],
+  "host_permissions": ["http://localhost:3000/*", "https://your-backend-domain.com/*"],
+
+  "background": {
+    "service_worker": "dist/background.bundle.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "FocusLine Settings"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["dist/content.bundle.js"]
+    }
+  ],
+
+  "web_accessible_resources": [
+  ]
+}

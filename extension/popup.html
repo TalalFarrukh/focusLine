@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FocusLine Settings</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="popup-container">
+        <header class="popup-header">
+            <h1>FocusLine</h1>
+            <p class="subtitle">AI-Powered Content Filter</p>
+        </header>
+
+        <main class="popup-content">
+            <!-- Status Section -->
+            <section class="status-section">
+                <h2>Status</h2>
+                <div class="status-item">
+                    <span class="status-label">Extension:</span>
+                    <span class="status-value" id="extensionStatus">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">Backend:</span>
+                    <span class="status-value" id="backendStatus">Checking...</span>
+                </div>
+                <div class="status-item">
+                    <span class="status-label">AI Service:</span>
+                    <span class="status-value" id="aiStatus">Checking...</span>
+                </div>
+            </section>
+
+            <!-- Settings Section -->
+            <section class="settings-section">
+                <h2>Settings</h2>
+                
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <input type="checkbox" id="enabledToggle" class="setting-toggle">
+                        <span class="toggle-slider"></span>
+                        Enable FocusLine
+                    </label>
+                </div>
+
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <input type="checkbox" id="tabBlockingToggle" class="setting-toggle">
+                        <span class="toggle-slider"></span>
+                        Tab Blocking
+                    </label>
+                </div>
+
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <input type="checkbox" id="contentFilteringToggle" class="setting-toggle">
+                        <span class="toggle-slider"></span>
+                        Content Filtering
+                    </label>
+                </div>
+
+                <div class="setting-item">
+                    <label class="setting-label">
+                        <span>Sensitivity Level:</span>
+                        <select id="sensitivitySelect" class="setting-select">
+                            <option value="low">Low</option>
+                            <option value="moderate" selected>Moderate</option>
+                            <option value="high">High</option>
+                        </select>
+                    </label>
+                </div>
+            </section>
+
+            <!-- Actions Section -->
+            <section class="actions-section">
+                <h2>Actions</h2>
+                
+                <button id="testConnectionBtn" class="action-btn">
+                    Test Connection
+                </button>
+                
+                <button id="analyzeCurrentPageBtn" class="action-btn">
+                    Analyze Current Page
+                </button>
+                
+                <button id="refreshStatusBtn" class="action-btn">
+                    Refresh Status
+                </button>
+            </section>
+
+            <!-- Statistics Section -->
+            <section class="stats-section">
+                <h2>Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-value" id="pagesAnalyzed">0</span>
+                        <span class="stat-label">Pages Analyzed</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="contentBlocked">0</span>
+                        <span class="stat-label">Content Blocked</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="tabsBlocked">0</span>
+                        <span class="stat-label">Tabs Blocked</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="popup-footer">
+            <p class="version">v1.0.0</p>
+            <p class="status-message" id="statusMessage"></p>
+        </footer>
+    </div>
+
+    <script src="dist/popup.bundle.js"></script>
+</body>
+</html>
