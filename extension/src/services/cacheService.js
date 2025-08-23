@@ -20,7 +20,6 @@ class CacheService {
 
         request.onsuccess = () => {
           this.db = request.result;
-          console.log('FocusLine: IndexedDB initialized successfully');
           resolve();
         };
 
@@ -39,8 +38,6 @@ class CacheService {
             const contentStore = db.createObjectStore('contentCache', { keyPath: 'hash' });
             contentStore.createIndex('timestamp', 'timestamp', { unique: false });
           }
-
-          console.log('FocusLine: IndexedDB schema created');
         };
       });
     } catch (error) {
@@ -167,7 +164,6 @@ class CacheService {
         const request = store.put(cacheEntry);
 
         request.onsuccess = () => {
-          console.log('FocusLine: Content cached:', hash);
           resolve();
         };
 
@@ -241,6 +237,14 @@ class CacheService {
       return new Promise((resolve, reject) => {
         const transaction = this.db.transaction(['urlCache', 'contentCache'], 'readwrite');
         
+        // Clear URL cache
+        const urlStore = transaction.objectStore('urlCache');
+        urlStore.clear();
+
+        // Clear content cache
+        const contentStore = transaction.objectStore('contentCache');
+        contentStore.clear();
+
         transaction.oncomplete = () => {
           console.log('FocusLine: All cache cleared');
           resolve();
@@ -249,14 +253,6 @@ class CacheService {
         transaction.onerror = () => {
           reject(transaction.error);
         };
-
-        // Clear URL cache
-        const urlStore = transaction.objectStore('urlCache');
-        urlStore.clear();
-
-        // Clear content cache
-        const contentStore = transaction.objectStore('contentCache');
-        contentStore.clear();
       });
     } catch (error) {
       console.error('FocusLine: Error clearing all cache:', error);

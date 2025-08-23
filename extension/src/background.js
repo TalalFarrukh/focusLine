@@ -43,24 +43,17 @@ async function initialize() {
 }
 
 /**
- * Load settings
+ * Load settings from SettingsService
  */
 async function loadSettings() {
   try {
-    // For now, use default settings
-    // Later this will load from chrome.storage
-    const settings = {
-      enabled: true,
-      tabBlockingEnabled: true,
-      sensitivity: 'moderate'
-    };
-
-    isEnabled = settings.enabled;
-    console.log('FocusLine: Settings loaded');
-
+    // Get settings from SettingsService (which syncs with backend and storage)
+    const settings = settingsService.getSettings();
+    
+    console.log('FocusLine: Settings loaded from SettingsService:', settings);
+    
   } catch (error) {
     console.error('FocusLine: Failed to load settings:', error);
-    isEnabled = true;
   }
 }
 
@@ -79,6 +72,9 @@ function setupEventListeners() {
 
   // Listen for messages from content scripts
   chrome.runtime.onMessage.addListener(handleMessage);
+
+  // Listen for storage changes (in case settings are changed from another part of extension)
+  chrome.storage.onChanged.addListener(handleStorageChange);
 
   console.log('FocusLine: Event listeners set up');
 }
@@ -122,7 +118,11 @@ function markUrlAnalysisInProgress(tabId, url, promise) {
  */
 function handleNavigation(details) {
   (async () => {
-    if (!settingsService.isTabBlockingEnabled()) return;
+    // Check if tab blocking is enabled via SettingsService
+    if (!settingsService.isTabBlockingEnabled()) {
+      console.log('FocusLine: Tab blocking disabled, allowing navigation');
+      return;
+    }
 
     // Only process main frame navigation
     if (details.frameId !== 0) return;
@@ -167,7 +167,11 @@ function handleNavigation(details) {
  */
 function handleTabUpdate(tabId, changeInfo, tab) {
   (async () => {
-    if (!settingsService.isTabBlockingEnabled() || !changeInfo.url) return;
+    // Check if tab blocking is enabled via SettingsService
+    if (!settingsService.isTabBlockingEnabled() || !changeInfo.url) {
+      console.log('FocusLine: Tab blocking disabled, allowing tab update');
+      return;
+    }
 
     try {
       const url = changeInfo.url;
@@ -199,7 +203,11 @@ function handleTabUpdate(tabId, changeInfo, tab) {
  */
 function handleTabCreated(tab) {
   (async () => {
-    if (!settingsService.isTabBlockingEnabled() || !tab.url) return;
+    // Check if tab blocking is enabled via SettingsService
+    if (!settingsService.isTabBlockingEnabled() || !tab.url) {
+      console.log('FocusLine: Tab blocking disabled, allowing new tab');
+      return;
+    }
 
     try {
       const url = tab.url;
@@ -381,6 +389,23 @@ async function showBlockedNotification(reason) {
 }
 
 /**
+ * Handle storage changes
+ */
+function handleStorageChange(changes, namespace) {
+  (async () => {
+    try {
+      // Check if settings changed
+      if (namespace === 'sync' && changes.settings) {
+        console.log('FocusLine: Settings changed in storage, refreshing...');
+        await settingsService.refreshSettings();
+      }
+    } catch (error) {
+      console.error('FocusLine: Error handling storage change:', error);
+    }
+  })();
+}
+
+/**
  * Handle messages from content scripts
  */
 function handleMessage(message, sender, sendResponse) {
@@ -399,11 +424,28 @@ function handleMessage(message, sender, sendResponse) {
 
         case 'updateSettings':
           await settingsService.updateSettings(message.settings);
+          // Refresh settings to ensure consistency
+          await settingsService.refreshSettings();
+          console.log('FocusLine: Settings updated and refreshed in background script:', message.settings);
           sendResponse({ success: true });
           break;
 
         case 'resetSettings':
           await settingsService.resetSettings();
+          sendResponse({ success: true });
+          break;
+
+        case 'clearCache':
+          await cacheService.clearAllCache();
+          // Send message to all tabs to clear their in-memory cache
+          const tabs = await chrome.tabs.query({});
+          for (const tab of tabs) {
+            try {
+              await chrome.tabs.sendMessage(tab.id, { type: 'clearCache' });
+            } catch (error) {
+              // Tab might not have content script loaded, ignore
+            }
+          }
           sendResponse({ success: true });
           break;
 

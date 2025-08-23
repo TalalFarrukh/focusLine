@@ -31,7 +31,7 @@ class UIService {
     const {
       target = document.body,
       message = 'Analyzing content...',
-      overlay = true,
+      overlay = false,
       progress = false
     } = options;
 

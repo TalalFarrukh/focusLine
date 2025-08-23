@@ -6,11 +6,13 @@ import ApiService from "./services/apiService.js";
 import ContentExtractor from "./services/contentExtractor.js";
 import UIService from "./services/uiService.js";
 import CacheService from "./services/cacheService.js";
+import SettingsService from "./services/settingsService.js";
 
 const apiService = new ApiService();
 const contentExtractor = new ContentExtractor();
 const uiService = new UIService();
 const cacheService = new CacheService();
+const settingsService = new SettingsService();
 
 // Global state
 let isInitialized = false;
@@ -28,11 +30,10 @@ const contentAnalysisCache = new Map(); // hash -> { result, timestamp }
  */
 async function initialize() {
   try {
-    console.log('FocusLine: Initializing content script...');
-    
     // Initialize services
     uiService.init();
     await cacheService.initialize();
+    await settingsService.initialize();
     
     // Test backend connection
     await testBackendConnection();
@@ -78,24 +79,19 @@ async function testBackendConnection() {
 }
 
 /**
- * Load extension settings
+ * Load extension settings from SettingsService
  */
 async function loadSettings() {
   try {
-    // For now, use default settings
-    // Later this will load from backend or chrome.storage
-    const settings = {
-      enabled: true,
-      sensitivity: 'moderate',
-      showNotifications: true
-    };
+    // Get settings from SettingsService (which syncs with backend and storage)
+    const settings = settingsService.getSettings();
     
     isEnabled = settings.enabled;
-    console.log('FocusLine: Settings loaded');
+    console.log('FocusLine: Settings loaded from SettingsService:', settings);
     
   } catch (error) {
     console.error('FocusLine: Failed to load settings:', error);
-    // Use default settings
+    // Use default settings on error
     isEnabled = true;
   }
 }
@@ -125,7 +121,8 @@ function startContentMonitoring() {
  * Handle DOM changes with improved debouncing
  */
 function handleDOMChanges(mutations) {
-  if (!isEnabled || !isInitialized || analysisInProgress) return;
+  // Check if extension and content analysis are enabled via SettingsService
+  if (!settingsService.isContentAnalysisEnabled() || !isInitialized || analysisInProgress) return;
   
   // Filter out irrelevant mutations
   const relevantMutations = mutations.filter(mutation => {
@@ -161,7 +158,8 @@ function handleDOMChanges(mutations) {
  * Extract and analyze page content with improved change detection
  */
 async function extractAndAnalyzeContent() {
-  if (!isEnabled || !isInitialized || analysisInProgress) return;
+  // Check if extension and content analysis are enabled via SettingsService
+  if (!settingsService.isContentAnalysisEnabled() || !isInitialized || analysisInProgress) return;
   
   const now = Date.now();
   if (now < pausedUntilTs) {
@@ -214,8 +212,6 @@ async function extractAndAnalyzeContent() {
     
     currentContentHash = contentHash;
     
-    // Content analysis now runs silently in the background - no overlay shown
-    
     // Analyze text nodes
     const analysisResult = await analyzeTextNodes(content.textNodes);
     
@@ -228,7 +224,7 @@ async function extractAndAnalyzeContent() {
       });
       
       lastAnalysisTs = now;
-      // Removed completion notification - analysis is now completely silent
+      console.log('FocusLine: Content analysis completed');
     }
     
   } catch (error) {
@@ -315,8 +311,6 @@ async function analyzeTextNodes(textNodes) {
   if (batch.length === 0) return null;
 
   try {
-    console.log(`FocusLine: Analyzing ${batch.length} text nodes`);
-    
     const result = await apiService.analyzeContentBatch(batch);
     
     if (result.success && result.data.results) {
@@ -384,40 +378,96 @@ function blockTextNode(textNode, analysis) {
 // Link analysis removed - handled by tab blocking in background script
 
 /**
+ * Clear in-memory session cache
+ */
+function clearInMemoryCache() {
+  try {
+    // Clear content analysis cache
+    contentAnalysisCache.clear();
+    
+    // Reset analysis state
+    currentContentHash = null;
+    lastAnalysisTs = 0;
+    analysisInProgress = false;
+    pausedUntilTs = 0;
+  } catch (error) {
+    console.error('FocusLine: Error clearing in-memory cache:', error);
+  }
+}
+
+/**
+ * Handle storage changes
+ */
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  (async () => {
+    try {
+      // Check if settings changed
+      if (namespace === 'sync' && changes.settings) {
+        console.log('FocusLine: Settings changed in storage, refreshing...');
+        await settingsService.refreshSettings();
+        await loadSettings();
+      }
+    } catch (error) {
+      console.error('FocusLine: Error handling storage change:', error);
+    }
+  })();
+});
+
+/**
  * Handle messages from background script
  */
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  try {
-    switch (message.type) {
-      case 'settingsChanged':
-        handleSettingsChange(message.settings);
-        break;
-      case 'analyzePage':
-        extractAndAnalyzeContent();
-        break;
-      case 'testConnection':
-        testBackendConnection().then(sendResponse);
-        return true; // Keep message channel open for async response
-      default:
-        console.log('FocusLine: Unknown message type:', message.type);
+  (async () => {
+    try {
+      switch (message.type) {
+        case 'settingsChanged':
+          await handleSettingsChange(message.settings);
+          break;
+        case 'analyzePage':
+          extractAndAnalyzeContent();
+          break;
+        case 'testConnection':
+          const result = await testBackendConnection();
+          sendResponse(result);
+          break;
+        case 'clearCache':
+          clearInMemoryCache();
+          break;
+        default:
+          console.log('FocusLine: Unknown message type:', message.type);
+      }
+    } catch (error) {
+      console.error('FocusLine: Error handling message:', error);
     }
-  } catch (error) {
-    console.error('FocusLine: Error handling message:', error);
-  }
+  })();
+  
+  return true; // Keep message channel open for async response
 });
 
 /**
  * Handle settings changes
  */
-function handleSettingsChange(settings) {
-  isEnabled = settings.enabled || true;
-  
-  if (isEnabled) {
-    console.log('FocusLine: Extension enabled');
-  } else {
-    console.log('FocusLine: Extension disabled');
-    // Clean up any existing blocking overlays
-    uiService.cleanup();
+async function handleSettingsChange(settings) {
+  try {
+    // Refresh settings from SettingsService to ensure consistency
+    await settingsService.refreshSettings();
+    
+    // Update local settings state
+    isEnabled = settings.enabled ?? true;
+    
+    if (isEnabled) {
+      console.log('FocusLine: Extension enabled');
+    } else {
+      console.log('FocusLine: Extension disabled');
+      // Clean up any existing blocking overlays
+      uiService.cleanup();
+    }
+    
+    // Reload settings from SettingsService to ensure consistency
+    await loadSettings();
+    
+  } catch (error) {
+    console.error('FocusLine: Error handling settings change:', error);
   }
 }
 

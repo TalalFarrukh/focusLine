@@ -211,6 +211,23 @@ class SettingsService {
   areNotificationsEnabled() {
     return this.getSetting('notificationsEnabled');
   }
+
+  /**
+   * Refresh settings from storage and backend
+   */
+  async refreshSettings() {
+    try {
+      // Reload from storage
+      await this.loadFromStorage();
+      
+      // Sync with backend
+      await this.syncWithBackend();
+      
+      console.log('FocusLine: Settings refreshed:', this.settings);
+    } catch (error) {
+      console.error('FocusLine: Error refreshing settings:', error);
+    }
+  }
 }
 
 export default SettingsService;

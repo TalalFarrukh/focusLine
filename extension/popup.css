@@ -111,6 +111,31 @@ header h1 {
 .setting-text {
   font-weight: 500;
   color: #495057;
+  transition: color 0.2s ease;
+}
+
+.setting-group.disabled .setting-text {
+  color: #adb5bd;
+}
+
+.setting-group.disabled .setting-checkbox {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.setting-group.disabled .setting-select {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f8f9fa;
+}
+
+.setting-group.disabled .setting-range {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.setting-group.disabled .range-value {
+  color: #adb5bd;
 }
 
 .setting-checkbox {

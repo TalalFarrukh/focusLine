@@ -2,41 +2,44 @@
  * FocusLine Popup Script
  * Handles popup UI interactions and settings management
  */
+import SettingsService from './services/settingsService.js';
 
 // DOM elements
 const elements = {
   // Status elements
-  extensionStatus: document.getElementById('extensionStatus'),
-  backendStatus: document.getElementById('backendStatus'),
-  aiStatus: document.getElementById('aiStatus'),
+  extensionStatus: document.getElementById('extension-status'),
+  backendStatus: document.getElementById('backend-status'),
 
   // Settings elements
-  enabledToggle: document.getElementById('enabledToggle'),
-  tabBlockingToggle: document.getElementById('tabBlockingToggle'),
-  contentFilteringToggle: document.getElementById('contentFilteringToggle'),
-  sensitivitySelect: document.getElementById('sensitivitySelect'),
+  enabledToggle: document.getElementById('enabled'),
+  tabBlockingToggle: document.getElementById('tabBlockingEnabled'),
+  contentFilteringToggle: document.getElementById('contentAnalysisEnabled'),
+  notificationsToggle: document.getElementById('notificationsEnabled'),
+  sensitivitySelect: document.getElementById('sensitivity'),
+  blockThresholdRange: document.getElementById('blockThreshold'),
+  blockThresholdValue: document.getElementById('blockThreshold-value'),
 
   // Action buttons
-  testConnectionBtn: document.getElementById('testConnectionBtn'),
-  analyzeCurrentPageBtn: document.getElementById('analyzeCurrentPageBtn'),
-  refreshStatusBtn: document.getElementById('refreshStatusBtn'),
+  saveSettings: document.getElementById('save-settings'),
+  resetSettings: document.getElementById('reset-settings'),
+  clearCache: document.getElementById('clear-cache'),
 
-  // Statistics elements
-  pagesAnalyzed: document.getElementById('pagesAnalyzed'),
-  contentBlocked: document.getElementById('contentBlocked'),
-  tabsBlocked: document.getElementById('tabsBlocked'),
+  // Action buttons (these don't exist in current HTML, but keeping for future use)
+  testConnectionBtn: null,
+  analyzeCurrentPageBtn: null,
+  refreshStatusBtn: null,
 
-  // Status message
-  statusMessage: document.getElementById('statusMessage')
+  // Statistics elements (these don't exist in current HTML, but keeping for future use)
+  pagesAnalyzed: null,
+  contentBlocked: null,
+  tabsBlocked: null,
+
+  // Status message (this doesn't exist in current HTML, but keeping for future use)
+  statusMessage: null
 };
 
-// Current settings
-let currentSettings = {
-  enabled: true,
-  tabBlockingEnabled: true,
-  contentFilteringEnabled: true,
-  sensitivity: 'moderate'
-};
+// Settings service instance
+const settingsService = new SettingsService();
 
 /**
  * Initialize popup
@@ -44,6 +47,9 @@ let currentSettings = {
 async function initialize() {
   try {
     console.log('FocusLine: Initializing popup...');
+
+    // Initialize settings service (this will sync with backend)
+    await settingsService.initialize();
 
     // Load current settings
     await loadSettings();
@@ -63,43 +69,55 @@ async function initialize() {
 }
 
 /**
- * Load settings from storage
+ * Load settings from SettingsService (which syncs with backend)
  */
 async function loadSettings() {
   try {
-    const result = await chrome.storage.sync.get({
-      enabled: true,
-      tabBlockingEnabled: true,
-      contentFilteringEnabled: true,
-      sensitivity: 'moderate'
-    });
+    // Get settings from SettingsService (includes backend sync)
+    const settings = settingsService.getSettings();
+    
+    // Update UI with current settings
+    elements.enabledToggle.checked = settings.enabled;
+    elements.tabBlockingToggle.checked = settings.tabBlockingEnabled;
+    elements.contentFilteringToggle.checked = settings.contentAnalysisEnabled;
+    elements.notificationsToggle.checked = settings.notificationsEnabled;
+    elements.sensitivitySelect.value = settings.sensitivity;
+    elements.blockThresholdRange.value = settings.blockThreshold || 7;
+    elements.blockThresholdValue.textContent = settings.blockThreshold || 7;
+    
+    // Update disabled state and visual appearance based on master switch
+    updateDisabledState(settings.enabled);
 
-    currentSettings = result;
-
-    // Update UI
-    elements.enabledToggle.checked = currentSettings.enabled;
-    elements.tabBlockingToggle.checked = currentSettings.tabBlockingEnabled;
-    elements.contentFilteringToggle.checked = currentSettings.contentFilteringEnabled;
-    elements.sensitivitySelect.value = currentSettings.sensitivity;
-
-    console.log('FocusLine: Settings loaded');
+    console.log('FocusLine: Settings loaded from backend', settings);
 
   } catch (error) {
-    console.error('FocusLine: Failed to load settings:', error);
+    console.error('FocusLine: Failed to load settings', error);
+    showStatusMessage('Failed to load settings', 'error');
   }
 }
 
 /**
- * Save settings to storage
+ * Save settings using SettingsService (which syncs with backend)
  */
 async function saveSettings() {
   try {
-    await chrome.storage.sync.set(currentSettings);
+    // Get current UI state
+    const newSettings = {
+      enabled: elements.enabledToggle.checked,
+      tabBlockingEnabled: elements.tabBlockingToggle.checked,
+      contentAnalysisEnabled: elements.contentFilteringToggle.checked,
+      notificationsEnabled: elements.notificationsToggle.checked,
+      sensitivity: elements.sensitivitySelect.value,
+      blockThreshold: parseInt(elements.blockThresholdRange.value)
+    };
+
+    // Update settings via SettingsService (this will sync with backend)
+    await settingsService.updateSettings(newSettings);
 
     // Notify background script
     await chrome.runtime.sendMessage({
       type: 'updateSettings',
-      settings: currentSettings
+      settings: newSettings
     });
 
     // Notify content scripts
@@ -108,19 +126,56 @@ async function saveSettings() {
       try {
         await chrome.tabs.sendMessage(tab.id, {
           type: 'settingsChanged',
-          settings: currentSettings
+          settings: newSettings
         });
       } catch (error) {
         // Tab might not have content script, ignore
       }
     }
 
-    showStatusMessage('Settings saved successfully', 'success');
-    console.log('FocusLine: Settings saved');
+    showSuccess('Settings saved and synced');
+    console.log('FocusLine: Settings saved and synced with backend');
 
   } catch (error) {
     console.error('FocusLine: Failed to save settings:', error);
-    showStatusMessage('Failed to save settings', 'error');
+    showError('Failed to save settings: ' + error.message);
+  }
+}
+
+/**
+ * Reset settings to default
+ */
+async function resetSettings() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'resetSettings' });
+    
+    if (response.success) {
+      await loadSettings(); // Reload settings
+      showSuccess('Settings reset to default');
+    } else {
+      throw new Error(response.error || 'Failed to reset settings');
+    }
+  } catch (error) {
+    console.error('FocusLine: Error resetting settings:', error);
+    showError('Failed to reset settings: ' + error.message);
+  }
+}
+
+/**
+ * Clear cache
+ */
+async function clearCache() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'clearCache' });
+    
+    if (response.success) {
+      showSuccess('Cache cleared successfully');
+    } else {
+      throw new Error(response.error || 'Failed to clear cache');
+    }
+  } catch (error) {
+    console.error('FocusLine: Error clearing cache:', error);
+    showError('Failed to clear cache: ' + error.message);
   }
 }
 
@@ -132,50 +187,178 @@ function setupEventListeners() {
   elements.enabledToggle.addEventListener('change', handleEnabledToggle);
   elements.tabBlockingToggle.addEventListener('change', handleTabBlockingToggle);
   elements.contentFilteringToggle.addEventListener('change', handleContentFilteringToggle);
+  elements.notificationsToggle.addEventListener('change', handleNotificationsToggle);
   elements.sensitivitySelect.addEventListener('change', handleSensitivityChange);
+  elements.blockThresholdRange.addEventListener('input', handleBlockThresholdChange);
 
-  // Action buttons
-  elements.testConnectionBtn.addEventListener('click', handleTestConnection);
-  elements.analyzeCurrentPageBtn.addEventListener('click', handleAnalyzeCurrentPage);
-  elements.refreshStatusBtn.addEventListener('click', handleRefreshStatus);
+  // Manual action buttons
+  if (elements.saveSettings) {
+    elements.saveSettings.addEventListener('click', saveSettings);
+  }
+  if (elements.resetSettings) {
+    elements.resetSettings.addEventListener('click', resetSettings);
+  }
+  if (elements.clearCache) {
+    elements.clearCache.addEventListener('click', clearCache);
+  }
+
+  // Action buttons (only add listeners if elements exist)
+  if (elements.testConnectionBtn) {
+    elements.testConnectionBtn.addEventListener('click', handleTestConnection);
+  }
+  if (elements.analyzeCurrentPageBtn) {
+    elements.analyzeCurrentPageBtn.addEventListener('click', handleAnalyzeCurrentPage);
+  }
+  if (elements.refreshStatusBtn) {
+    elements.refreshStatusBtn.addEventListener('click', handleRefreshStatus);
+  }
+}
+
+/**
+ * Update disabled state and visual appearance of settings
+ */
+function updateDisabledState(isMasterEnabled) {
+  // Get the setting group containers
+  const tabBlockingGroup = elements.tabBlockingToggle.closest('.setting-group');
+  const contentAnalysisGroup = elements.contentFilteringToggle.closest('.setting-group');
+  const sensitivityGroup = elements.sensitivitySelect.closest('.setting-group');
+  const blockThresholdGroup = elements.blockThresholdRange.closest('.setting-group');
+  
+  if (!isMasterEnabled) {
+    // Disable controls
+    elements.tabBlockingToggle.disabled = true;
+    elements.contentFilteringToggle.disabled = true;
+    elements.sensitivitySelect.disabled = true;
+    elements.blockThresholdRange.disabled = true;
+    
+    // Add disabled visual state
+    tabBlockingGroup.classList.add('disabled');
+    contentAnalysisGroup.classList.add('disabled');
+    sensitivityGroup.classList.add('disabled');
+    blockThresholdGroup.classList.add('disabled');
+  } else {
+    // Enable controls
+    elements.tabBlockingToggle.disabled = false;
+    elements.contentFilteringToggle.disabled = false;
+    elements.sensitivitySelect.disabled = false;
+    elements.blockThresholdRange.disabled = false;
+    
+    // Remove disabled visual state
+    tabBlockingGroup.classList.remove('disabled');
+    contentAnalysisGroup.classList.remove('disabled');
+    sensitivityGroup.classList.remove('disabled');
+    blockThresholdGroup.classList.remove('disabled');
+  }
 }
 
 /**
  * Handle enabled toggle
  */
 function handleEnabledToggle() {
-  currentSettings.enabled = elements.enabledToggle.checked;
-  saveSettings();
+  const isEnabled = elements.enabledToggle.checked;
+  
+  if (!isEnabled) {
+    // When disabling master switch, automatically disable other settings
+    elements.tabBlockingToggle.checked = false;
+    elements.contentFilteringToggle.checked = false;
+  }
+  
+  // Update disabled state and visual appearance
+  updateDisabledState(isEnabled);
+  
+  // Auto-save if no manual save button, otherwise let user save manually
+  if (!elements.saveSettings) {
+    saveSettings();
+  }
 }
 
 /**
  * Handle tab blocking toggle
  */
 function handleTabBlockingToggle() {
-  currentSettings.tabBlockingEnabled = elements.tabBlockingToggle.checked;
-  saveSettings();
+  // Only allow changes if master switch is enabled
+  if (!elements.enabledToggle.checked) {
+    elements.tabBlockingToggle.checked = false;
+    return;
+  }
+  
+  // Auto-save if no manual save button, otherwise let user save manually
+  if (!elements.saveSettings) {
+    saveSettings();
+  }
 }
 
 /**
  * Handle content filtering toggle
  */
 function handleContentFilteringToggle() {
-  currentSettings.contentFilteringEnabled = elements.contentFilteringToggle.checked;
-  saveSettings();
+  // Only allow changes if master switch is enabled
+  if (!elements.enabledToggle.checked) {
+    elements.contentFilteringToggle.checked = false;
+    return;
+  }
+  
+  // Auto-save if no manual save button, otherwise let user save manually
+  if (!elements.saveSettings) {
+    saveSettings();
+  }
+}
+
+/**
+ * Handle notifications toggle
+ */
+function handleNotificationsToggle() {
+  // Only allow changes if master switch is enabled
+  if (!elements.enabledToggle.checked) {
+    elements.notificationsToggle.checked = false;
+    return;
+  }
+  
+  // Auto-save if no manual save button, otherwise let user save manually
+  if (!elements.saveSettings) {
+    saveSettings();
+  }
 }
 
 /**
  * Handle sensitivity change
  */
 function handleSensitivityChange() {
-  currentSettings.sensitivity = elements.sensitivitySelect.value;
-  saveSettings();
+  // Only allow changes if master switch is enabled
+  if (!elements.enabledToggle.checked) {
+    return;
+  }
+  
+  // Auto-save if no manual save button, otherwise let user save manually
+  if (!elements.saveSettings) {
+    saveSettings();
+  }
+}
+
+/**
+ * Handle block threshold change
+ */
+function handleBlockThresholdChange() {
+  // Only allow changes if master switch is enabled
+  if (!elements.enabledToggle.checked) {
+    return;
+  }
+  
+  // Update the display value
+  elements.blockThresholdValue.textContent = elements.blockThresholdRange.value;
+  
+  // Auto-save if no manual save button, otherwise let user save manually
+  if (!elements.saveSettings) {
+    saveSettings();
+  }
 }
 
 /**
  * Handle test connection button
  */
 async function handleTestConnection() {
+  if (!elements.testConnectionBtn) return;
+  
   try {
     elements.testConnectionBtn.disabled = true;
     elements.testConnectionBtn.textContent = 'Testing...';
@@ -204,6 +387,8 @@ async function handleTestConnection() {
  * Handle analyze current page button
  */
 async function handleAnalyzeCurrentPage() {
+  if (!elements.analyzeCurrentPageBtn) return;
+  
   try {
     elements.analyzeCurrentPageBtn.disabled = true;
     elements.analyzeCurrentPageBtn.textContent = 'Analyzing...';
@@ -233,6 +418,8 @@ async function handleAnalyzeCurrentPage() {
  * Handle refresh status button
  */
 async function handleRefreshStatus() {
+  if (!elements.refreshStatusBtn) return;
+  
   try {
     elements.refreshStatusBtn.disabled = true;
     elements.refreshStatusBtn.textContent = 'Refreshing...';
@@ -255,25 +442,26 @@ async function handleRefreshStatus() {
 async function checkStatus() {
   try {
     // Check extension status
-    updateStatusElement(elements.extensionStatus, 'active', 'Extension Active');
+    if (elements.extensionStatus) {
+      updateStatusElement(elements.extensionStatus, 'active', 'Extension Active');
+    }
 
     // Check backend status
-    try {
-      const result = await chrome.runtime.sendMessage({
-        type: 'testConnection'
-      });
-      console.log("Result:", result);
+    if (elements.backendStatus) {
+      try {
+        const result = await chrome.runtime.sendMessage({
+          type: 'testConnection'
+        });
+        console.log("Result:", result);
 
-      if (result && (result.status === 'ok' || result.success)) {
-        updateStatusElement(elements.backendStatus, 'active', 'Backend Connected');
-        updateStatusElement(elements.aiStatus, 'active', 'AI Service Ready');
-      } else {
-        updateStatusElement(elements.backendStatus, 'error', 'Backend Error');
-        updateStatusElement(elements.aiStatus, 'error', 'AI Service Error');
+        if (result && (result.status === 'ok' || result.success)) {
+          updateStatusElement(elements.backendStatus, 'active', 'Backend Connected');
+        } else {
+          updateStatusElement(elements.backendStatus, 'error', 'Backend Error');
+        }
+      } catch (error) {
+        updateStatusElement(elements.backendStatus, 'error', 'Backend Unavailable');
       }
-    } catch (error) {
-      updateStatusElement(elements.backendStatus, 'error', 'Backend Unavailable');
-      updateStatusElement(elements.aiStatus, 'error', 'AI Service Unavailable');
     }
 
   } catch (error) {
@@ -290,17 +478,52 @@ function updateStatusElement(element, status, text) {
 }
 
 /**
- * Show status message
+ * Show success message
+ */
+function showSuccess(message) {
+  // Simple success notification
+  const notification = document.createElement('div');
+  notification.className = 'notification success';
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.remove();
+  }, 3000);
+}
+
+/**
+ * Show error message
+ */
+function showError(message) {
+  // Simple error notification
+  const notification = document.createElement('div');
+  notification.className = 'notification error';
+  notification.textContent = message;
+  document.body.appendChild(notification);
+  
+  setTimeout(() => {
+    notification.remove();
+  }, 5000);
+}
+
+/**
+ * Show status message (fallback for future use)
  */
 function showStatusMessage(message, type = 'info') {
-  elements.statusMessage.textContent = message;
-  elements.statusMessage.className = `status-message status-${type}`;
+  if (elements.statusMessage) {
+    elements.statusMessage.textContent = message;
+    elements.statusMessage.className = `status-message status-${type}`;
 
-  // Auto-hide after 3 seconds
-  setTimeout(() => {
-    elements.statusMessage.textContent = '';
-    elements.statusMessage.className = 'status-message';
-  }, 3000);
+    // Auto-hide after 3 seconds
+    setTimeout(() => {
+      elements.statusMessage.textContent = '';
+      elements.statusMessage.className = 'status-message';
+    }, 3000);
+  } else {
+    // Fallback to console if status message element doesn't exist
+    console.log(`FocusLine: ${type.toUpperCase()} - ${message}`);
+  }
 }
 
 /**
