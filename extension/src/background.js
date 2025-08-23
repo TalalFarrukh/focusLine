@@ -3,12 +3,18 @@
  * Handles tab blocking and navigation management
  */
 import ApiService from "./services/apiService.js";
+import SettingsService from "./services/settingsService.js";
+import CacheService from "./services/cacheService.js";
 
 const apiService = new ApiService();
+const settingsService = new SettingsService();
+const cacheService = new CacheService();
 
 // Global state
-let isEnabled = true;
 let blockedTabs = new Set();
+
+// URL analysis deduplication per tab (prevent multiple calls for same URL)
+const tabUrlAnalysis = new Map(); // tabId -> { url, timestamp, promise }
 
 /**
  * Initialize background script
@@ -17,11 +23,17 @@ async function initialize() {
   try {
     console.log('FocusLine: Initializing background script...');
 
-    // Load settings
-    await loadSettings();
+    // Initialize services
+    await settingsService.initialize();
+    await cacheService.initialize();
 
     // Set up event listeners
     setupEventListeners();
+
+    // Clear expired cache entries periodically
+    setInterval(() => {
+      cacheService.clearExpiredCache();
+    }, 60 * 60 * 1000); // Every hour
 
     console.log('FocusLine: Background script initialized successfully');
 
@@ -72,11 +84,45 @@ function setupEventListeners() {
 }
 
 /**
+ * Check if URL analysis is already in progress for this tab
+ */
+function isUrlAnalysisInProgress(tabId, url) {
+  const analysis = tabUrlAnalysis.get(tabId);
+  if (!analysis) return false;
+
+  // Check if it's the same URL and within 30 seconds
+  const now = Date.now();
+  const timeDiff = now - analysis.timestamp;
+  
+  if (analysis.url === url && timeDiff < 30000) { // 30 seconds TTL
+    return true;
+  }
+
+  // Clean up old entries
+  if (timeDiff >= 30000) {
+    tabUrlAnalysis.delete(tabId);
+  }
+
+  return false;
+}
+
+/**
+ * Mark URL analysis as in progress for this tab
+ */
+function markUrlAnalysisInProgress(tabId, url, promise) {
+  tabUrlAnalysis.set(tabId, {
+    url,
+    timestamp: Date.now(),
+    promise
+  });
+}
+
+/**
  * Handle navigation attempts
  */
 function handleNavigation(details) {
   (async () => {
-    if (!isEnabled) return;
+    if (!settingsService.isTabBlockingEnabled()) return;
 
     // Only process main frame navigation
     if (details.frameId !== 0) return;
@@ -84,6 +130,12 @@ function handleNavigation(details) {
     try {
       const url = details.url;
       console.log('FocusLine: Checking navigation to:', url);
+
+      // Check if analysis is already in progress for this tab
+      if (isUrlAnalysisInProgress(details.tabId, url)) {
+        console.log('FocusLine: URL analysis already in progress for tab:', details.tabId);
+        return;
+      }
 
       // Step 1: Check for explicit URL words
       if (containsExplicitWords(url)) {
@@ -115,11 +167,17 @@ function handleNavigation(details) {
  */
 function handleTabUpdate(tabId, changeInfo, tab) {
   (async () => {
-    if (!isEnabled || !changeInfo.url) return;
+    if (!settingsService.isTabBlockingEnabled() || !changeInfo.url) return;
 
     try {
       const url = changeInfo.url;
       console.log('FocusLine: Tab URL updated:', url);
+
+      // Check if analysis is already in progress for this tab
+      if (isUrlAnalysisInProgress(tabId, url)) {
+        console.log('FocusLine: URL analysis already in progress for tab:', tabId);
+        return;
+      }
 
       // Check if tab should be blocked
       if (containsExplicitWords(url)) {
@@ -141,11 +199,17 @@ function handleTabUpdate(tabId, changeInfo, tab) {
  */
 function handleTabCreated(tab) {
   (async () => {
-    if (!isEnabled || !tab.url) return;
+    if (!settingsService.isTabBlockingEnabled() || !tab.url) return;
 
     try {
       const url = tab.url;
       console.log('FocusLine: New tab created:', url);
+
+      // Check if analysis is already in progress for this tab
+      if (isUrlAnalysisInProgress(tab.id, url)) {
+        console.log('FocusLine: URL analysis already in progress for tab:', tab.id);
+        return;
+      }
 
       // Check if tab should be blocked
       if (containsExplicitWords(url)) {
@@ -195,18 +259,48 @@ async function analyzeAndBlockTab(tabId, url) {
   try {
     console.log('FocusLine: Analyzing URL with AI:', url);
 
+    // Check if analysis is already in progress
+    if (isUrlAnalysisInProgress(tabId, url)) {
+      console.log('FocusLine: URL analysis already in progress for tab:', tabId);
+      return;
+    }
+
+    // Check client-side cache first
+    const cachedResult = await cacheService.getUrlCache(url);
+    if (cachedResult) {
+      console.log('FocusLine: Using cached URL analysis result');
+      if (cachedResult.shouldBlock) {
+        await blockTab(tabId, cachedResult.reasoning || 'Inappropriate content detected (cached)');
+      } else {
+        await hideTabLoading(tabId);
+        console.log('FocusLine: Cached analysis allows URL:', url);
+      }
+      return;
+    }
+
     // Show loading state in tab
     await showTabLoading(tabId);
 
-    // Analyze URL with AI
-    const result = await apiService.analyzeUrl(url);
+    // Create analysis promise and mark as in progress
+    const analysisPromise = apiService.analyzeUrl(url);
+    markUrlAnalysisInProgress(tabId, url, analysisPromise);
 
-    if (result.success && result.data.analysis.shouldBlock) {
-      await blockTab(tabId, result.data.analysis.reasoning || 'Inappropriate content detected');
+    // Analyze URL with AI
+    const result = await analysisPromise;
+
+    if (result.success) {
+      // Cache the result
+      await cacheService.setUrlCache(url, result.data.analysis);
+
+      if (result.data.analysis.shouldBlock) {
+        await blockTab(tabId, result.data.analysis.reasoning || 'Inappropriate content detected');
+      } else {
+        // Allow the tab
+        await hideTabLoading(tabId);
+        console.log('FocusLine: AI analysis allows URL:', url);
+      }
     } else {
-      // Allow the tab
-      await hideTabLoading(tabId);
-      console.log('FocusLine: AI analysis allows URL:', url);
+      throw new Error('AI analysis failed');
     }
 
   } catch (error) {
@@ -273,6 +367,8 @@ async function hideTabLoading(tabId) {
  */
 async function showBlockedNotification(reason) {
   try {
+    if (!settingsService.areNotificationsEnabled()) return;
+
     await chrome.notifications.create({
       type: 'basic',
       iconUrl: 'icon48.png',
@@ -297,13 +393,17 @@ function handleMessage(message, sender, sendResponse) {
           break;
 
         case 'getSettings':
-          const settings = await loadSettings();
-          sendResponse(settings);
+          const settings = settingsService.getSettings();
+          sendResponse({ success: true, data: settings });
           break;
 
         case 'updateSettings':
-          // Handle settings update
-          console.log('FocusLine: Settings updated:', message.settings);
+          await settingsService.updateSettings(message.settings);
+          sendResponse({ success: true });
+          break;
+
+        case 'resetSettings':
+          await settingsService.resetSettings();
           sendResponse({ success: true });
           break;
 

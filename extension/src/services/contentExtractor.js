@@ -21,8 +21,7 @@ class ContentExtractor {
         textNodes: [],
         links: [],
         images: [],
-        metadata: this._extractMetadata(),
-        timestamp: new Date().toISOString()
+        metadata: this._extractMetadata()
       };
 
       // Extract text nodes
@@ -93,29 +92,12 @@ class ContentExtractor {
   }
 
   /**
-   * Extract links with context
+   * Extract links with context (kept for potential future use, but not analyzed)
    * @returns {Array} - Array of link objects
    */
   _extractLinks() {
-    const links = [];
-    const linkElements = document.querySelectorAll('a[href]');
-
-    linkElements.forEach(link => {
-      const url = link.href;
-      const text = link.textContent.trim();
-      
-      if (text.length > 0 && url) {
-        links.push({
-          url: url,
-          text: text,
-          title: link.title || '',
-          element: link,
-          context: this._getElementContext(link)
-        });
-      }
-    });
-
-    return links;
+    // Links are no longer analyzed - tab blocking handles URL safety
+    return [];
   }
 
   /**
@@ -322,8 +304,17 @@ class ContentExtractor {
   hasContentChanged(previousContent, currentContent) {
     if (!previousContent || !currentContent) return true;
     
-    // Simple comparison - can be enhanced
-    return JSON.stringify(previousContent) !== JSON.stringify(currentContent);
+    // Compare text nodes content only
+    const prevTexts = previousContent.textNodes?.map(n => n.text).join('|') || '';
+    const currTexts = currentContent.textNodes?.map(n => n.text).join('|') || '';
+    
+    if (prevTexts !== currTexts) return true;
+    
+    // Compare links content
+    const prevLinks = previousContent.links?.map(l => `${l.url}|${l.text}`).join('|') || '';
+    const currLinks = currentContent.links?.map(l => `${l.url}|${l.text}`).join('|') || '';
+    
+    return prevLinks !== currLinks;
   }
 }
 

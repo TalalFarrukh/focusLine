@@ -1,119 +1,91 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FocusLine Settings</title>
-    <link rel="stylesheet" href="popup.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FocusLine Settings</title>
+  <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-    <div class="popup-container">
-        <header class="popup-header">
-            <h1>FocusLine</h1>
-            <p class="subtitle">AI-Powered Content Filter</p>
-        </header>
+  <div class="container">
+    <header>
+      <h1>FocusLine</h1>
+      <p class="subtitle">AI Content Filter</p>
+    </header>
 
-        <main class="popup-content">
-            <!-- Status Section -->
-            <section class="status-section">
-                <h2>Status</h2>
-                <div class="status-item">
-                    <span class="status-label">Extension:</span>
-                    <span class="status-value" id="extensionStatus">Checking...</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">Backend:</span>
-                    <span class="status-value" id="backendStatus">Checking...</span>
-                </div>
-                <div class="status-item">
-                    <span class="status-label">AI Service:</span>
-                    <span class="status-value" id="aiStatus">Checking...</span>
-                </div>
-            </section>
-
-            <!-- Settings Section -->
-            <section class="settings-section">
-                <h2>Settings</h2>
-                
-                <div class="setting-item">
-                    <label class="setting-label">
-                        <input type="checkbox" id="enabledToggle" class="setting-toggle">
-                        <span class="toggle-slider"></span>
-                        Enable FocusLine
-                    </label>
-                </div>
-
-                <div class="setting-item">
-                    <label class="setting-label">
-                        <input type="checkbox" id="tabBlockingToggle" class="setting-toggle">
-                        <span class="toggle-slider"></span>
-                        Tab Blocking
-                    </label>
-                </div>
-
-                <div class="setting-item">
-                    <label class="setting-label">
-                        <input type="checkbox" id="contentFilteringToggle" class="setting-toggle">
-                        <span class="toggle-slider"></span>
-                        Content Filtering
-                    </label>
-                </div>
-
-                <div class="setting-item">
-                    <label class="setting-label">
-                        <span>Sensitivity Level:</span>
-                        <select id="sensitivitySelect" class="setting-select">
-                            <option value="low">Low</option>
-                            <option value="moderate" selected>Moderate</option>
-                            <option value="high">High</option>
-                        </select>
-                    </label>
-                </div>
-            </section>
-
-            <!-- Actions Section -->
-            <section class="actions-section">
-                <h2>Actions</h2>
-                
-                <button id="testConnectionBtn" class="action-btn">
-                    Test Connection
-                </button>
-                
-                <button id="analyzeCurrentPageBtn" class="action-btn">
-                    Analyze Current Page
-                </button>
-                
-                <button id="refreshStatusBtn" class="action-btn">
-                    Refresh Status
-                </button>
-            </section>
-
-            <!-- Statistics Section -->
-            <section class="stats-section">
-                <h2>Statistics</h2>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-value" id="pagesAnalyzed">0</span>
-                        <span class="stat-label">Pages Analyzed</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-value" id="contentBlocked">0</span>
-                        <span class="stat-label">Content Blocked</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-value" id="tabsBlocked">0</span>
-                        <span class="stat-label">Tabs Blocked</span>
-                    </div>
-                </div>
-            </section>
-        </main>
-
-        <footer class="popup-footer">
-            <p class="version">v1.0.0</p>
-            <p class="status-message" id="statusMessage"></p>
-        </footer>
+    <div class="status-section">
+      <div class="status-item">
+        <span class="status-label">Extension Status:</span>
+        <span class="status-value" id="extension-status">Loading...</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">Backend Status:</span>
+        <span class="status-value" id="backend-status">Loading...</span>
+      </div>
     </div>
 
-    <script src="dist/popup.bundle.js"></script>
+    <div class="settings-section">
+      <h2>Settings</h2>
+      
+      <div class="setting-group">
+        <label class="setting-label">
+          <input type="checkbox" id="enabled" class="setting-checkbox">
+          <span class="setting-text">Enable FocusLine</span>
+        </label>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">
+          <input type="checkbox" id="tabBlockingEnabled" class="setting-checkbox">
+          <span class="setting-text">Enable Tab Blocking</span>
+        </label>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">
+          <input type="checkbox" id="contentAnalysisEnabled" class="setting-checkbox">
+          <span class="setting-text">Enable Content Analysis</span>
+        </label>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">
+          <input type="checkbox" id="notificationsEnabled" class="setting-checkbox">
+          <span class="setting-text">Show Notifications</span>
+        </label>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">
+          <span class="setting-text">Sensitivity Level:</span>
+          <select id="sensitivity" class="setting-select">
+            <option value="low">Low</option>
+            <option value="moderate">Moderate</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="setting-group">
+        <label class="setting-label">
+          <span class="setting-text">Block Threshold (1-10):</span>
+          <input type="range" id="blockThreshold" class="setting-range" min="1" max="10" value="7">
+          <span class="range-value" id="blockThreshold-value">7</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="actions-section">
+      <button id="save-settings" class="btn btn-primary">Save Settings</button>
+      <button id="reset-settings" class="btn btn-secondary">Reset to Default</button>
+      <button id="clear-cache" class="btn btn-secondary">Clear Cache</button>
+    </div>
+
+    <div class="info-section">
+      <p class="info-text">Settings are automatically synced across your devices.</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
 </body>
 </html>

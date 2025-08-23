@@ -9,6 +9,73 @@ if (!GEMINI_API_KEY) {
 
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
+// Helper: create a model configured to return JSON
+function getJsonModel(responseSchema = undefined) {
+  const base = {
+    model: "gemini-2.5-flash-lite",
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  };
+  if (responseSchema) {
+    base.generationConfig.responseSchema = responseSchema;
+  }
+  return genAI.getGenerativeModel(base);
+}
+
+// Helper: call Gemini with Google Search grounding (flash model; not supported on flash-lite)
+async function generateGroundedJson(prompt) {
+  const model = genAI.getGenerativeModel({ 
+    model: "gemini-2.5-flash",
+    tools: [{ googleSearch: {} }]
+  });
+  const result = await model.generateContent(prompt);
+  const text = typeof result?.response?.text === 'function' ? result.response.text() : String(result?.response?.text || '');
+  return text;
+}
+
+// Helper: robust JSON extraction from LLM output
+function extractFirstJsonSegment(text) {
+  if (!text) return null;
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let stringChar = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    const prev = i > 0 ? text[i - 1] : '';
+    if (inString) {
+      if (ch === stringChar && prev !== '\\') {
+        inString = false;
+        stringChar = '';
+      }
+      continue;
+    }
+    if (ch === '"' || ch === '\'') {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+    if (ch === '{' || ch === '[') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}' || ch === ']') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+async function generateJson(prompt, responseSchema = undefined) {
+  const model = getJsonModel(responseSchema);
+  const result = await model.generateContent(prompt);
+  const response = result.response.text();
+  return response;
+}
+
 /**
  * Test the Gemini API connection with a simple prompt
  * @returns {Promise<object>} - Test result with status and response
@@ -68,7 +135,7 @@ const generateText = async (prompt) => {
     // Handle specific error types
     if (error.message.includes("API key")) {
       throw new Error("Invalid or missing API key");
-    } else if (error.message.includes("quota")) {
+    } else if (error.message.includes("quota") || error.message.includes("429")) {
       throw new Error("API quota exceeded");
     } else if (error.message.includes("rate limit")) {
       throw new Error("Rate limit exceeded");
@@ -150,8 +217,219 @@ const analyzeContent = async (text) => {
   }
 };
 
+/**
+ * Analyze multiple items in a single provider call
+ * @param {Array<{id: string, text: string}>} items
+ * @returns {Promise<Object<string, object>>} - Map of id -> analysis
+ */
+const analyzeContentBatch = async (items) => {
+  try {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error("No items provided for batch analysis");
+    }
+
+    // Build a compact prompt for multiple items
+    const itemsBlock = items.map(it => `{"id":"${it.id}","content":"${(it.text || '').replace(/"/g, '\\"').substring(0, 1000)}"}`).join(',');
+
+    const prompt = `
+      You are analyzing multiple short content items. For EACH item, return an entry in a single JSON object keyed by the item's id.
+
+      STRICT OUTPUT REQUIREMENTS:
+      - Output ONLY a single valid JSON object with keys equal to the provided ids.
+      - No markdown, no code fences, no extra text.
+      - Do NOT include the word json or any commentary.
+      - Each value MUST follow this exact schema:
+        {
+          "score": number (1-10),
+          "shouldBlock": boolean,
+          "confidence": number (0-1),
+          "reasoning": string,
+          "analysis": {
+            "explicitContent": boolean,
+            "inappropriateLanguage": boolean,
+            "context": string
+          }
+        }
+
+      ITEMS: [${itemsBlock}]
+
+      Return format example (shape only):
+      {
+        "id1": { ... },
+        "id2": { ... }
+      }
+    `;
+
+    // Request strict JSON from the model
+    let response;
+    try {
+      response = await generateJson(prompt);
+    } catch (e) {
+      throw e;
+    }
+
+    // Parse and validate the object map with fallbacks
+    let parsed;
+    try {
+      parsed = JSON.parse(response);
+    } catch (e) {
+      // Try to extract a JSON segment and parse that
+      const segment = extractFirstJsonSegment(response);
+      if (segment) {
+        try {
+          parsed = JSON.parse(segment);
+        } catch {
+          // Retry once with a very strict reminder
+          const strictPrompt = `${prompt}\n\nIMPORTANT: Output only the JSON object. No backticks, no prose.`;
+          const retryResp = await generateJson(strictPrompt);
+          try {
+            parsed = JSON.parse(retryResp);
+          } catch {
+            const retrySeg = extractFirstJsonSegment(retryResp);
+            if (retrySeg) {
+              try {
+                parsed = JSON.parse(retrySeg);
+              } catch {
+                throw new Error("Failed to parse batch JSON response");
+              }
+            } else {
+              throw new Error("Failed to parse batch JSON response");
+            }
+          }
+        }
+      } else {
+        throw new Error("Failed to parse batch JSON response");
+      }
+    }
+
+    const results = {};
+
+    for (const it of items) {
+      const entry = parsed[it.id];
+      if (entry && typeof entry === 'object') {
+        // Minimal validation, fallback if invalid
+        const isValid = typeof entry.score === 'number' && typeof entry.shouldBlock === 'boolean';
+        results[it.id] = isValid ? entry : {
+          score: 5,
+          shouldBlock: false,
+          confidence: 0.5,
+          reasoning: "Invalid AI response entry",
+          analysis: { explicitContent: false, inappropriateLanguage: false, context: "unknown" }
+        };
+      } else {
+        results[it.id] = {
+          score: 5,
+          shouldBlock: false,
+          confidence: 0.5,
+          reasoning: "Missing AI response entry",
+          analysis: { explicitContent: false, inappropriateLanguage: false, context: "unknown" }
+        };
+      }
+    }
+
+    return results;
+  } catch (error) {
+    console.error("Batch content analysis error:", error.message);
+    throw new Error(`Content analysis failed: ${error.message}`);
+  }
+};
+
+/**
+ * Analyze a URL for appropriateness quickly using AI and lightweight context.
+ * Input: { url, anchorText?, pageCategory? }
+ * Output: { score, shouldBlock, confidence, reasoning }
+ */
+const analyzeUrlQuick = async ({ url, anchorText = "", pageCategory = "general" }) => {
+  if (!url || typeof url !== 'string') throw new Error('Invalid URL');
+
+  const escapedUrl = url.replace(/"/g, '\\"');
+  const escapedAnchor = (anchorText || '').replace(/"/g, '\\"').substring(0, 300);
+  const prompt = `
+    You are a content safety filter. Decide if navigating to the URL should be blocked.
+
+    STRICT OUTPUT: Return ONLY one JSON object, nothing else.
+    {
+      "score": number (1-10),
+      "shouldBlock": boolean,
+      "confidence": number (0-1),
+      "reasoning": string
+    }
+
+    Inputs:
+    URL: "${escapedUrl}"
+    AnchorText: "${escapedAnchor}"
+    PageCategory: "${pageCategory}"
+
+    Guidance:
+    - If URL obviously matches adult domains/paths, shouldBlock=true.
+    - If clearly safe (news, docs, reputable sites), shouldBlock=false.
+    - If ambiguous, weigh toward safety but reflect uncertainty in confidence.
+  `;
+
+  const resp = await generateJson(prompt);
+  try {
+    return JSON.parse(resp);
+  } catch {
+    const seg = extractFirstJsonSegment(resp);
+    if (seg) {
+      try { return JSON.parse(seg); } catch {}
+    }
+    return { score: 5, shouldBlock: false, confidence: 0.5, reasoning: 'Unparseable AI response' };
+  }
+};
+
+/**
+ * Analyze a URL using Google Search grounding for higher accuracy.
+ * Uses Gemini with Search tools enabled to retrieve evidence and decide.
+ * Returns a strict JSON decision object.
+ */
+const analyzeUrlGrounded = async ({ url, anchorText = "", pageCategory = "general" }) => {
+  if (!url || typeof url !== 'string') throw new Error('Invalid URL');
+
+  // Keep prompt compact; model is instructed to use search tools
+  const escapedUrl = url.replace(/"/g, '\\"');
+  const escapedAnchor = (anchorText || '').replace(/"/g, '\\"').substring(0, 300);
+
+  const prompt = `
+    Task: Decide if navigating to the URL is appropriate. Use Google Search grounding to verify destination reputation/content.
+
+    STRICT OUTPUT: Return ONLY one JSON object, nothing else.
+    {
+      "score": number (1-10),
+      "shouldBlock": boolean,
+      "confidence": number (0-1),
+      "reasoning": string
+    }
+
+    Inputs:
+    URL: "${escapedUrl}"
+    AnchorText: "${escapedAnchor}"
+    PageCategory: "${pageCategory}"
+
+    Guidance:
+    - Consider domain reputation, search snippets, and likely content.
+    - Adult or explicit destinations → shouldBlock=true.
+    - Educational/news contexts → generally allow unless clearly explicit.
+    - If uncertain after search, favor safety but reflect uncertainty in confidence.
+  `;
+
+  const text = await generateGroundedJson(prompt);
+  try {
+    return JSON.parse(text);
+  } catch {
+    const seg = extractFirstJsonSegment(text);
+    if (seg) {
+      try { return JSON.parse(seg); } catch {}
+    }
+    return { score: 5, shouldBlock: false, confidence: 0.5, reasoning: 'Unparseable grounded response' };
+  }
+};
+
 module.exports = {
   generateText,
   testConnection,
-  analyzeContent
+  analyzeContent,
+  analyzeContentBatch,
+  analyzeUrlQuick,
+  analyzeUrlGrounded
 };

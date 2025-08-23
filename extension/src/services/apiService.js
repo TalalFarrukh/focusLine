@@ -17,11 +17,28 @@ class ApiService {
         if (response.ok) {
           return await response.json();
         } else {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // Don't retry on 429 (rate limit) or 4xx client errors
+          if (response.status === 429) {
+            const retryAfter = response.headers.get('Retry-After');
+            const delay = retryAfter ? parseInt(retryAfter) * 1000 : 60000; // Default 1 minute
+            console.warn(`Rate limited. Waiting ${delay}ms before next request.`);
+            await this._delay(delay);
+            throw new Error(`Rate limit exceeded. Please try again later.`);
+          } else if (response.status >= 400 && response.status < 500) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
         }
       } catch (error) {
         lastError = error;
         console.warn(`API request attempt ${attempt} failed:`, error.message);
+        
+        // Don't retry on rate limit errors
+        if (error.message.includes('Rate limit') || error.message.includes('429')) {
+          throw error;
+        }
+        
         if (attempt < this.maxRetries) {
           await this._delay(this.retryDelay * attempt);
         }
@@ -82,28 +99,83 @@ class ApiService {
     });
   }
 
-  async analyzeUrl(url, content = '') {
-    return this.makeRequest('/gemini/analyze-url', {
+  async analyzeContentBatch(items) {
+    return this.makeRequest('/gemini/analyze-batch', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ url, content })
+      body: JSON.stringify({ items })
     });
   }
 
-  async getSettings() {
-    return this.makeRequest('/settings');
+  /**
+   * Analyze URL with AI (for tab blocking)
+   */
+  async analyzeUrl(url) {
+    try {
+      const response = await this.makeRequest('/gemini/analyze-url', {
+        method: 'POST',
+        body: JSON.stringify({
+          url,
+          grounded: true // Use Google Search grounding by default
+        })
+      });
+
+      return response;
+    } catch (error) {
+      console.error('FocusLine: Error analyzing URL:', error);
+      throw error;
+    }
   }
 
-  async updateSettings(settings) {
-    return this.makeRequest('/settings', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(settings)
-    });
+  /**
+   * Get user settings
+   */
+  async getSettings(userId) {
+    try {
+      const response = await this.makeRequest(`/settings/${userId}`, {
+        method: 'GET'
+      });
+
+      return response;
+    } catch (error) {
+      console.error('FocusLine: Error getting settings:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update user settings
+   */
+  async updateSettings(userId, settings) {
+    try {
+      const response = await this.makeRequest(`/settings/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ settings })
+      });
+
+      return response;
+    } catch (error) {
+      console.error('FocusLine: Error updating settings:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reset user settings to default
+   */
+  async resetSettings(userId) {
+    try {
+      const response = await this.makeRequest(`/settings/${userId}`, {
+        method: 'DELETE'
+      });
+
+      return response;
+    } catch (error) {
+      console.error('FocusLine: Error resetting settings:', error);
+      throw error;
+    }
   }
 }
 
