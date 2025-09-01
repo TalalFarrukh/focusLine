@@ -5,6 +5,7 @@
 import ApiService from "./services/apiService.js";
 import SettingsService from "./services/settingsService.js";
 import CacheService from "./services/cacheService.js";
+import WhitelistService from "./services/whitelistService.js";
 
 const apiService = new ApiService();
 const settingsService = new SettingsService();
@@ -131,6 +132,12 @@ function handleNavigation(details) {
       const url = details.url;
       console.log('FocusLine: Checking navigation to:', url);
 
+      // Check if domain is whitelisted for tab blocking
+      if (WhitelistService.isUrlTabBlockingWhitelisted(url)) {
+        console.log('FocusLine: Skipping tab blocking for whitelisted domain:', url);
+        return;
+      }
+
       // Check if analysis is already in progress for this tab
       if (isUrlAnalysisInProgress(details.tabId, url)) {
         console.log('FocusLine: URL analysis already in progress for tab:', details.tabId);
@@ -177,6 +184,12 @@ function handleTabUpdate(tabId, changeInfo, tab) {
       const url = changeInfo.url;
       console.log('FocusLine: Tab URL updated:', url);
 
+      // Check if domain is whitelisted for tab blocking
+      if (WhitelistService.isUrlTabBlockingWhitelisted(url)) {
+        console.log('FocusLine: Skipping tab blocking for whitelisted domain:', url);
+        return;
+      }
+
       // Check if analysis is already in progress for this tab
       if (isUrlAnalysisInProgress(tabId, url)) {
         console.log('FocusLine: URL analysis already in progress for tab:', tabId);
@@ -212,6 +225,12 @@ function handleTabCreated(tab) {
     try {
       const url = tab.url;
       console.log('FocusLine: New tab created:', url);
+
+      // Check if domain is whitelisted for tab blocking
+      if (WhitelistService.isUrlTabBlockingWhitelisted(url)) {
+        console.log('FocusLine: Skipping tab blocking for whitelisted domain:', url);
+        return;
+      }
 
       // Check if analysis is already in progress for this tab
       if (isUrlAnalysisInProgress(tab.id, url)) {

@@ -99,13 +99,23 @@ class ApiService {
     });
   }
 
-  async analyzeContentBatch(items) {
+  async analyzeContentBatch(items, settings = null) {
+    const requestBody = { items };
+    
+    // Include user settings if provided
+    if (settings) {
+      requestBody.settings = {
+        blockThreshold: settings.blockThreshold,
+        sensitivity: settings.sensitivity
+      };
+    }
+    
     return this.makeRequest('/gemini/analyze-batch', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ items })
+      body: JSON.stringify(requestBody)
     });
   }
 
